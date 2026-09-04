@@ -2,6 +2,10 @@
 
 This Next.js application stores each user's connections in Supabase PostgreSQL.
 
+## Onboarding video
+
+[Watch the onboarding video](video/onboarding/connections-pipeline-onboarding.mp4)
+
 ## Setup
 
 1. Create a Supabase project.
