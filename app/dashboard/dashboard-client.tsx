@@ -191,7 +191,7 @@ function ActionsView({ connections, onEdit, onMessage, onStatus, onBatch }: { co
 
   async function copyFollowUp(item: ActionQueueItem) {
     const role = item.connection.opening.role || "this role";
-    const message = `Hi ${item.connection.name}, bumping this in case it slipped past your inbox! Would love to connect regarding ${role}.`;
+    const message = `Hi,\n\nI am following up in case my message slipped past your inbox. I would like to connect regarding ${role}.`;
     try {
       await navigator.clipboard.writeText(message);
       setCopiedId(item.connection.id);
@@ -240,7 +240,7 @@ function SettingsDialog({ profile, email, onClose, onSave }: { profile: Profile;
   const nameRef = useRef<HTMLInputElement>(null);
   const titleId = useId();
   useDialogFocus(dialogRef, onClose, nameRef);
-  return <div className="dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section ref={dialogRef} className="dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}><div className="dialog-title"><div><p className="eyebrow">SETTINGS</p><h2 id={titleId}>Profile settings</h2></div><button className="icon-button" onClick={onClose} aria-label="Close">Close</button></div><p>Signed in as {email}.</p><label>Your name<input ref={nameRef} value={full_name} onChange={(event) => setName(event.target.value)} /></label><label>Your headline<input value={headline} onChange={(event) => setHeadline(event.target.value)} /></label><label>Message template<textarea rows={12} value={message_template} onChange={(event) => setTemplate(event.target.value)} /></label><p>Use {"{name}"}, {"{company}"}, {"{job}"}, {"{joblink}"}, {"{headline}"}, and {"{sender}"}.</p><div className="dialog-actions"><button className="secondary-button" onClick={onClose}>Cancel</button><button className="primary-button" onClick={() => onSave({ full_name, headline, message_template })}>Save profile</button></div></section></div>;
+  return <div className="dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section ref={dialogRef} className="dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}><div className="dialog-title"><div><p className="eyebrow">SETTINGS</p><h2 id={titleId}>Profile settings</h2></div><button className="icon-button" onClick={onClose} aria-label="Close">Close</button></div><p>Signed in as {email}.</p><label>Your name<input ref={nameRef} value={full_name} onChange={(event) => setName(event.target.value)} /></label><label>Your headline<input value={headline} onChange={(event) => setHeadline(event.target.value)} /></label><label>Message template<textarea rows={12} value={message_template} onChange={(event) => setTemplate(event.target.value)} /></label><p>Use {"{company}"}, {"{job}"}, {"{joblink}"}, and {"{headline}"}. Name placeholders stay empty.</p><div className="dialog-actions"><button className="secondary-button" onClick={onClose}>Cancel</button><button className="primary-button" onClick={() => onSave({ full_name, headline, message_template })}>Save profile</button></div></section></div>;
 }
 
 function MessageDrawer({ connection, profile, onClose }: { connection: Connection; profile: Profile; onClose: () => void }) {

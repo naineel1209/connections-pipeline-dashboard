@@ -62,9 +62,9 @@ test("opening text accepts an optional header and ignores blank rows", () => {
   ]);
 });
 
-test("message template fills the job link token", () => {
+test("message template omits name placeholders and fills the job link token", () => {
   const result = renderMessageTemplate("{name}|{company}|{job}|{joblink}|{headline}|{sender}", connection(), { full_name: "Nai Neel", headline: "Python engineer", message_template: defaultMessageTemplate });
-  assert.equal(result, "Avery Smith|Acme|Data Engineer|https://acme.example/jobs/1|Python engineer|Nai Neel");
+  assert.equal(result, "|Acme|Data Engineer|https://acme.example/jobs/1|Python engineer|");
 });
 
 test("message template leaves a missing job link empty", () => {
