@@ -13,7 +13,7 @@ import { parseProfileTsv } from "@/lib/profile-tsv";
 import { buildActionQueue, type ActionQueueItem } from "@/lib/action-center";
 import { defaultMessageTemplate, renderMessageTemplate } from "@/lib/message-template";
 import { STATUSES, type Connection, type ConnectionInput, type Opening, type OpeningInput, type Profile, type Status } from "@/lib/types";
-import { closeOpening, createOpeningWithProfiles, deleteConnection, reopenOpening, reorderConnections, saveConnection, saveProfile, updateConnectionStatus } from "./actions";
+import { closeOpening, createOpeningWithProfiles, deleteConnection, reopenOpening, reorderConnections, saveConnection, saveProfile, updateConnectionStatus, updateOpeningPortalStatus } from "./actions";
 
 type View = "Pipeline" | "Companies" | "Actions" | "Table";
 type SortOption = "newest" | "oldest" | "company" | "name";
@@ -143,6 +143,19 @@ export default function DashboardClient({ initialConnections, initialOpenings, p
       }
     });
   }
+  function changePortalStatus(opening: Opening, appliedOnPortal: boolean) {
+    const previousStatus = opening.applied_on_portal;
+    setOpenings((items) => items.map((item) => item.id === opening.id ? { ...item, applied_on_portal: appliedOnPortal } : item));
+    setConnections((items) => items.map((item) => item.opening_id === opening.id ? { ...item, opening: { ...item.opening, applied_on_portal: appliedOnPortal } } : item));
+    startTransition(async () => {
+      const result = await updateOpeningPortalStatus(opening.id, appliedOnPortal);
+      if (result.error) {
+        setOpenings((items) => items.map((item) => item.id === opening.id ? { ...item, applied_on_portal: previousStatus } : item));
+        setConnections((items) => items.map((item) => item.opening_id === opening.id ? { ...item, opening: { ...item.opening, applied_on_portal: previousStatus } } : item));
+        report(result.error);
+      } else refresh("Job portal status updated.");
+    });
+  }
   async function signOut() { await createClient().auth.signOut(); router.replace("/login"); router.refresh(); }
   function openBatch(opening?: Opening, profiles = "") { setBatchOpening(opening); setBatchProfiles(profiles); setShowBatch(true); }
 
@@ -162,7 +175,7 @@ export default function DashboardClient({ initialConnections, initialOpenings, p
     </>}
     {notice && <p className="notice" role="status">{notice}</p>}{pending && <p className="pending" role="status">Saving changes...</p>}
     {view === "Pipeline" && <KanbanBoard connections={filtered} visibleStatuses={visibleStatuses} profile={profile} onEdit={setEditing} onMove={move} onStatus={setStatus} onMessage={setMessageFor} onDelete={remove} />}
-    {view === "Companies" && <CompaniesView openings={allOpenings} connections={connections} onEdit={setEditing} onAddProfiles={openBatch} onClose={(opening) => changeOpening(opening, "close")} onReopen={(opening) => changeOpening(opening, "reopen")} />}
+    {view === "Companies" && <CompaniesView openings={allOpenings} connections={connections} onEdit={setEditing} onAddProfiles={openBatch} onClose={(opening) => changeOpening(opening, "close")} onReopen={(opening) => changeOpening(opening, "reopen")} visibleStatuses={visibleStatuses} onToggleStatus={toggleStatus} onUpdatePortalStatus={changePortalStatus} pending={pending} />}
     {view === "Actions" && <ActionsView connections={connections} onEdit={setEditing} onMessage={setMessageFor} onStatus={setStatus} onBatch={openBatch} />}
     {view === "Table" && <ConnectionsTable connections={filtered} onEdit={setEditing} onDelete={remove} />}
     {editing && <ConnectionForm connection={editing} openings={allOpenings} onClose={() => setEditing(undefined)} onSave={save} />}

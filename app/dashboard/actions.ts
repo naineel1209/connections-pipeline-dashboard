@@ -75,6 +75,17 @@ export async function updateOpening(id: string, input: OpeningInput): Promise<Re
   } catch (error) { return { error: error instanceof Error ? error.message : "Unable to update the opening." }; }
 }
 
+export async function updateOpeningPortalStatus(id: string, appliedOnPortal: boolean): Promise<Result> {
+  try {
+    const { supabase, user } = await requireUser();
+    await requireOpening(id, user.id, supabase);
+    const { error } = await supabase.from("openings").update({ applied_on_portal: Boolean(appliedOnPortal) }).eq("id", id).eq("owner_id", user.id);
+    if (error) return { error: error.message };
+    revalidatePath("/dashboard");
+    return {};
+  } catch (error) { return { error: error instanceof Error ? error.message : "Unable to update the job portal status." }; }
+}
+
 export async function closeOpening(id: string): Promise<Result> {
   try {
     const { supabase, user } = await requireUser();
