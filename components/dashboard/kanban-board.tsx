@@ -2,11 +2,13 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { STATUSES, type Connection, type Status } from "@/lib/types";
+import { defaultMessageTemplate, renderMessageTemplate } from "@/lib/message-template";
+import { STATUSES, type Connection, type Profile, type Status } from "@/lib/types";
 
 type Props = {
   connections: Connection[];
   visibleStatuses: Set<Status>;
+  profile: Profile;
   onEdit: (connection: Connection) => void;
   onMove: (id: string, status: Status, beforeId?: string) => void;
   onStatus: (connection: Connection, status: Status) => void;
@@ -22,7 +24,7 @@ const stageColours: Record<Status, string> = {
   Closed: "#9CA3AF",
 };
 
-export function KanbanBoard({ connections, visibleStatuses, onEdit, onMove, onStatus, onMessage, onDelete }: Props) {
+export function KanbanBoard({ connections, visibleStatuses, profile, onEdit, onMove, onStatus, onMessage, onDelete }: Props) {
   const [dropStatus, setDropStatus] = useState<Status>();
   const [hoveredCompany, setHoveredCompany] = useState<string>();
   const [selectedCompany, setSelectedCompany] = useState<string>();
@@ -33,7 +35,7 @@ export function KanbanBoard({ connections, visibleStatuses, onEdit, onMove, onSt
       const cards = connections.filter((connection) => connection.status === status);
       return <section className={`pipeline-column column-${status.toLowerCase()} ${dropStatus === status ? "drag-target" : ""}`} key={status} onDragOver={(event) => { event.preventDefault(); setDropStatus(status); }} onDragLeave={(event) => { if (event.currentTarget === event.target) setDropStatus(undefined); }} onDrop={(event) => { event.preventDefault(); const id = event.dataTransfer.getData("connection-id"); if (id) onMove(id, status); setDropStatus(undefined); }}>
         <header><div className="column-heading"><span className="column-colour" style={{ background: stageColours[status] }} /><h3>{status}</h3></div><span className="column-count">{cards.length}</span></header>
-        <div className="column-cards">{cards.length ? cards.map((connection) => <PipelineCard key={connection.id} connection={connection} accent={stageColours[status]} highlighted={Boolean(activeCompany && connection.opening.company === activeCompany)} selected={selectedCompany === connection.opening.company} onCompanyEnter={(company) => setHoveredCompany(company)} onCompanyLeave={() => setHoveredCompany(undefined)} onCompanyClick={(company) => setSelectedCompany((current) => current === company ? undefined : company)} onEdit={onEdit} onMove={onMove} onStatus={onStatus} onMessage={onMessage} onDelete={onDelete} />) : <p className="column-empty">No contacts</p>}</div>
+        <div className="column-cards">{cards.length ? cards.map((connection) => <PipelineCard key={connection.id} connection={connection} profile={profile} accent={stageColours[status]} highlighted={Boolean(activeCompany && connection.opening.company === activeCompany)} selected={selectedCompany === connection.opening.company} onCompanyEnter={(company) => setHoveredCompany(company)} onCompanyLeave={() => setHoveredCompany(undefined)} onCompanyClick={(company) => setSelectedCompany((current) => current === company ? undefined : company)} onEdit={onEdit} onMove={onMove} onStatus={onStatus} onMessage={onMessage} onDelete={onDelete} />) : <p className="column-empty">No contacts</p>}</div>
       </section>;
     })}
   </div></div>;
@@ -41,6 +43,7 @@ export function KanbanBoard({ connections, visibleStatuses, onEdit, onMove, onSt
 
 type CardProps = Omit<Props, "connections" | "visibleStatuses"> & {
   connection: Connection;
+  profile: Profile;
   accent: string;
   highlighted: boolean;
   selected: boolean;
@@ -49,7 +52,7 @@ type CardProps = Omit<Props, "connections" | "visibleStatuses"> & {
   onCompanyClick: (company: string) => void;
 };
 
-function PipelineCard({ connection, accent, highlighted, selected, onCompanyEnter, onCompanyLeave, onCompanyClick, onEdit, onMove, onStatus, onMessage, onDelete }: CardProps) {
+function PipelineCard({ connection, profile, accent, highlighted, selected, onCompanyEnter, onCompanyLeave, onCompanyClick, onEdit, onMove, onStatus, onMessage, onDelete }: CardProps) {
   const [menu, setMenu] = useState(false);
   const [copied, setCopied] = useState(false);
   const [menuPosition, setMenuPosition] = useState<{ left: number; top: number }>();
@@ -58,12 +61,16 @@ function PipelineCard({ connection, accent, highlighted, selected, onCompanyEnte
   const menuId = useId();
   const opening = connection.opening;
   const date = formatDate(connection.date_added);
-  const message = `Hi ${connection.name}, I noticed your work at ${opening.company} and saw the opening for ${opening.role || "this role"}. I'd love to connect and learn more about your experience with the team!`;
+  const message = renderMessageTemplate(profile.message_template || defaultMessageTemplate, connection, profile);
 
   async function copyMessage() {
-    try { await navigator.clipboard.writeText(message); } catch { /* The action still confirms restricted clipboard access. */ }
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1500);
+    try {
+      await navigator.clipboard.writeText(message);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // The browser keeps the button unchanged when clipboard access fails.
+    }
   }
 
   function positionMenu() {

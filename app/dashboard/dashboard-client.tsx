@@ -10,12 +10,13 @@ import { useDialogFocus } from "@/components/dashboard/use-dialog-focus";
 import { createClient } from "@/lib/supabase/client";
 import { parseOpeningTsv } from "@/lib/opening-tsv";
 import { parseProfileTsv } from "@/lib/profile-tsv";
+import { buildActionQueue, type ActionQueueItem } from "@/lib/action-center";
+import { defaultMessageTemplate, renderMessageTemplate } from "@/lib/message-template";
 import { STATUSES, type Connection, type ConnectionInput, type Opening, type OpeningInput, type Profile, type Status } from "@/lib/types";
 import { closeOpening, createOpeningWithProfiles, deleteConnection, reopenOpening, reorderConnections, saveConnection, saveProfile, updateConnectionStatus } from "./actions";
 
 type View = "Pipeline" | "Companies" | "Actions" | "Table";
 type SortOption = "newest" | "oldest" | "company" | "name";
-const defaultTemplate = "Hi {name}, I hope you are doing well. I am interested in the {job} role at {company}. {headline} Would you be open to sharing advice or referring me? Thanks, {sender}";
 
 export default function DashboardClient({ initialConnections, initialOpenings, profile, email }: { initialConnections: Connection[]; initialOpenings: Opening[]; profile: Profile; email: string }) {
   const router = useRouter();
@@ -28,6 +29,7 @@ export default function DashboardClient({ initialConnections, initialOpenings, p
   const [sort, setSort] = useState<SortOption>("newest");
   const [editing, setEditing] = useState<Connection>();
   const [batchOpening, setBatchOpening] = useState<Opening>();
+  const [batchProfiles, setBatchProfiles] = useState("");
   const [showBatch, setShowBatch] = useState(false);
   const [showMore, setShowMore] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -127,6 +129,7 @@ export default function DashboardClient({ initialConnections, initialOpenings, p
       if (result.error) { report(result.error); return; }
       setShowBatch(false);
       setBatchOpening(undefined);
+      setBatchProfiles("");
       refresh(`${result.profileCount ?? profiles.length} profiles added.`);
     });
   }
@@ -141,7 +144,7 @@ export default function DashboardClient({ initialConnections, initialOpenings, p
     });
   }
   async function signOut() { await createClient().auth.signOut(); router.replace("/login"); router.refresh(); }
-  function openBatch(opening?: Opening) { setBatchOpening(opening); setShowBatch(true); }
+  function openBatch(opening?: Opening, profiles = "") { setBatchOpening(opening); setBatchProfiles(profiles); setShowBatch(true); }
 
   return <main className="dashboard-shell">
     <header className="topbar"><div className="workspace-mark"><span className="logo-mark" aria-hidden="true">C</span><div><p className="eyebrow">PRIVATE WORKSPACE</p><h1>Connections</h1></div></div><div className="topbar-actions"><span className="sync-state">Synced</span><div className="menu-wrap"><button className="secondary-button" onClick={() => setShowMore(!showMore)} aria-expanded={showMore}>More</button>{showMore && <div className="menu-panel right-menu"><button onClick={() => { setView("Table"); setShowMore(false); }}>Data table</button><a href="/api/export">Export CSV</a><button onClick={() => { setShowSettings(true); setShowMore(false); }}>Profile settings</button><button onClick={signOut}>Sign out</button></div>}</div><button className="primary-button" onClick={() => openBatch()}>Add batch</button></div></header>
@@ -158,26 +161,53 @@ export default function DashboardClient({ initialConnections, initialOpenings, p
       </section>
     </>}
     {notice && <p className="notice" role="status">{notice}</p>}{pending && <p className="pending" role="status">Saving changes...</p>}
-    {view === "Pipeline" && <KanbanBoard connections={filtered} visibleStatuses={visibleStatuses} onEdit={setEditing} onMove={move} onStatus={setStatus} onMessage={setMessageFor} onDelete={remove} />}
+    {view === "Pipeline" && <KanbanBoard connections={filtered} visibleStatuses={visibleStatuses} profile={profile} onEdit={setEditing} onMove={move} onStatus={setStatus} onMessage={setMessageFor} onDelete={remove} />}
     {view === "Companies" && <CompaniesView openings={allOpenings} connections={connections} onEdit={setEditing} onAddProfiles={openBatch} onClose={(opening) => changeOpening(opening, "close")} onReopen={(opening) => changeOpening(opening, "reopen")} />}
-    {view === "Actions" && <ActionsView connections={connections} onEdit={setEditing} onMessage={setMessageFor} />}
+    {view === "Actions" && <ActionsView connections={connections} onEdit={setEditing} onMessage={setMessageFor} onStatus={setStatus} onBatch={openBatch} />}
     {view === "Table" && <ConnectionsTable connections={filtered} onEdit={setEditing} onDelete={remove} />}
     {editing && <ConnectionForm connection={editing} openings={allOpenings} onClose={() => setEditing(undefined)} onSave={save} />}
-    {showBatch && <BatchTsvDialog opening={batchOpening} pending={pending} onClose={() => { setShowBatch(false); setBatchOpening(undefined); }} onSave={addBatch} />}
+    {showBatch && <BatchTsvDialog opening={batchOpening} initialProfiles={batchProfiles} pending={pending} onClose={() => { setShowBatch(false); setBatchOpening(undefined); setBatchProfiles(""); }} onSave={addBatch} />}
     {showSettings && <SettingsDialog profile={profile} email={email} onClose={() => setShowSettings(false)} onSave={(input) => startTransition(async () => { const result = await saveProfile(input); if (result.error) report(result.error); else { setShowSettings(false); refresh("Profile settings saved."); } })} />}
     {messageFor && <MessageDrawer connection={messageFor} profile={profile} onClose={() => setMessageFor(undefined)} />}
   </main>;
 }
 
-function ActionsView({ connections, onEdit, onMessage }: { connections: Connection[]; onEdit: (connection: Connection) => void; onMessage: (connection: Connection) => void }) {
-  const next = connections.filter((connection) => connection.status === "Pending" || connection.status === "Messaged");
-  return <section className="actions-panel"><div className="actions-heading"><h3>{next.length ? "Profiles to move forward" : "No pending actions"}</h3><span>{next.length} profile{next.length === 1 ? "" : "s"}</span></div>{next.length ? next.map((connection) => <article className="action-row" key={connection.id}><div><strong>{connection.name}</strong><p>{connection.opening.company} · {connection.opening.role || "Role not set"}</p></div><span className={`status-pill status-${connection.status.toLowerCase()}`}>{connection.status}</span><div><button className="text-button" onClick={() => onEdit(connection)}>Details</button><button className="secondary-button" onClick={() => onMessage(connection)}>Message</button></div></article>) : <p className="empty-state">Add a batch to create an opening and profiles.</p>}</section>;
+function ActionsView({ connections, onEdit, onMessage, onStatus, onBatch }: { connections: Connection[]; onEdit: (connection: Connection) => void; onMessage: (connection: Connection) => void; onStatus: (connection: Connection, status: Status) => void; onBatch: (opening?: Opening, profiles?: string) => void }) {
+  const queue = buildActionQueue(connections);
+  const [copiedId, setCopiedId] = useState<string>();
+
+  async function copyFollowUp(item: ActionQueueItem) {
+    const role = item.connection.opening.role || "this role";
+    const message = `Hi ${item.connection.name}, bumping this in case it slipped past your inbox! Would love to connect regarding ${role}.`;
+    try {
+      await navigator.clipboard.writeText(message);
+      setCopiedId(item.connection.id);
+      window.setTimeout(() => setCopiedId(undefined), 1500);
+    } catch {
+      // The browser reports clipboard failures without changing the visible action state.
+    }
+  }
+
+  function directAction(item: ActionQueueItem) {
+    const { connection } = item;
+    if (item.actionKind === "copy-follow-up") return <button className="primary-button" onClick={() => copyFollowUp(item)}>{copiedId === connection.id ? "✓ Copied!" : item.actionLabel}</button>;
+    if (item.actionKind === "mark-closed") return <button className="primary-button" onClick={() => onStatus(connection, "Closed")}>{item.actionLabel}</button>;
+    if (item.actionKind === "open-message") return <button className="primary-button" onClick={() => onMessage(connection)}>{item.actionLabel}</button>;
+    if (item.actionKind === "open-profile" && connection.profile_url) return <a className="primary-button" href={connection.profile_url} target="_blank" rel="noreferrer">{item.actionLabel}</a>;
+    if (item.actionKind === "open-job" && connection.opening.job_url) return <a className="primary-button" href={connection.opening.job_url} target="_blank" rel="noreferrer">{item.actionLabel}</a>;
+    if (item.actionKind === "dial-phone" && item.phone) return <a className="primary-button" href={`tel:${item.phone}`}>{item.actionLabel}</a>;
+    if (item.actionKind === "add-referral") return <button className="primary-button" onClick={() => onBatch(connection.opening, item.referredName ? `${item.referredName}\t` : "")}>{item.actionLabel}</button>;
+    if (item.actionKind === "review-lockout") return <button className="primary-button" onClick={() => onEdit(item.blockedBy || connection)}>{item.actionLabel}</button>;
+    return <button className="primary-button" onClick={() => onEdit(connection)}>{item.actionLabel}</button>;
+  }
+
+  return <section className="actions-panel"><div className="actions-heading"><div><p className="eyebrow">PRIORITY QUEUE</p><h3>{queue.length ? "Profiles that need attention" : "No active actions"}</h3></div><span>{queue.length} profile{queue.length === 1 ? "" : "s"}</span></div>{queue.length ? queue.map((item) => <article className={`action-row urgency-${item.urgency}`} key={item.connection.id}><div className="action-main"><div className="action-title"><strong>{item.connection.name}</strong><span className={`status-pill status-${item.connection.status.toLowerCase()}`}>{item.connection.status}</span></div><p>{item.connection.opening.company} · {item.connection.opening.role || "Role not set"}</p><p className="action-instruction"><b>{item.flag}.</b> {item.prompt}</p></div><div className="action-age"><strong>{item.ageDays === 1 ? "1 day" : `${item.ageDays} days`}</strong><span>since interaction</span></div><div className="action-controls">{directAction(item)}<button className="text-button" onClick={() => onEdit(item.connection)}>Details</button></div></article>) : <p className="empty-state">Add a batch to create an opening and its profiles.</p>}</section>;
 }
 
-function BatchTsvDialog({ opening, pending, onClose, onSave }: { opening?: Opening; pending: boolean; onClose: () => void; onSave: (input: OpeningInput, profiles: string) => void }) {
+function BatchTsvDialog({ opening, initialProfiles, pending, onClose, onSave }: { opening?: Opening; initialProfiles: string; pending: boolean; onClose: () => void; onSave: (input: OpeningInput, profiles: string) => void }) {
   const [openingText, setOpeningText] = useState(opening ? `${opening.company}\t${opening.role || ""}\t${opening.job_url || ""}` : "");
   const [form, setForm] = useState<OpeningInput>({ company: opening?.company || "", role: opening?.role || "", job_url: opening?.job_url || "", applied_on_portal: opening?.applied_on_portal || false });
-  const [profiles, setProfiles] = useState("");
+  const [profiles, setProfiles] = useState(initialProfiles);
   const dialogRef = useRef<HTMLFormElement>(null);
   const openingRef = useRef<HTMLTextAreaElement>(null);
   const titleId = useId();
@@ -188,26 +218,34 @@ function BatchTsvDialog({ opening, pending, onClose, onSave }: { opening?: Openi
     if (parsed) setForm((current) => ({ ...current, company: parsed.company, role: parsed.role, job_url: parsed.job_url }));
   }
   useDialogFocus(dialogRef, onClose, openingRef);
-  return <div className="dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><form ref={dialogRef} className="dialog batch-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onSubmit={(event) => { event.preventDefault(); onSave(form, profiles); }}><div className="dialog-title"><div><p className="eyebrow">BATCH TSV</p><h2 id={titleId}>Add opening and profiles</h2></div><button type="button" className="icon-button" onClick={onClose} aria-label="Close">Close</button></div><p>Paste one opening, then paste its profiles below.</p><label>Opening TSV<textarea ref={openingRef} rows={3} value={openingText} onChange={(event) => updateOpeningText(event.target.value)} placeholder={"Company\tJob Role\tJob Link\nExample Company\tSoftware Engineer\thttps://company.com/jobs/role"} /></label><div className="form-grid"><label>Company<input required value={form.company} onChange={(event) => setForm({ ...form, company: event.target.value })} /></label><label>Job role<input value={form.role ?? ""} onChange={(event) => setForm({ ...form, role: event.target.value })} /></label></div><label>Job link<input value={form.job_url ?? ""} onChange={(event) => setForm({ ...form, job_url: event.target.value })} placeholder="https://company.com/jobs/role" /></label><label className="check-label"><input type="checkbox" checked={form.applied_on_portal} onChange={(event) => setForm({ ...form, applied_on_portal: event.target.checked })} />I applied on the portal</label><label>Profile TSV<textarea rows={8} value={profiles} onChange={(event) => setProfiles(event.target.value)} placeholder={"Name\tLinkedIn Profile Link\nAvery Smith\thttps://www.linkedin.com/in/avery"} /></label><p className="detected-count">{profileCount} profile{profileCount === 1 ? "" : "s"} detected. Headers are optional.</p><div className="dialog-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancel</button><button className="primary-button" disabled={pending || !form.company.trim() || !profileCount}>{pending ? "Adding..." : `Add ${profileCount || ""} profiles`}</button></div></form></div>;
+  return <div className="dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><form ref={dialogRef} className="dialog batch-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onSubmit={(event) => { event.preventDefault(); onSave(form, profiles); }}><div className="dialog-title"><div><p className="eyebrow">BATCH TSV</p><h2 id={titleId}>Add opening and profiles</h2></div><button type="button" className="icon-button" onClick={onClose} aria-label="Close">Close</button></div><p>Paste one opening, then paste its profiles below.</p><label>Opening TSV<textarea ref={openingRef} rows={3} value={openingText} onChange={(event) => updateOpeningText(event.target.value)} placeholder={"Company\tJob role\tJob link"} /></label><p className="detected-count">{form.company ? `Opening ready: ${form.company}${form.role ? `, ${form.role}` : ""}.` : "Enter Company, Job role, and Job link as tab-separated values."}</p><label>Profile TSV<textarea rows={8} value={profiles} onChange={(event) => setProfiles(event.target.value)} placeholder={"Name\tLinkedIn profile link"} /></label><p className="detected-count">{profileCount} profile{profileCount === 1 ? "" : "s"} detected. Headers are optional.</p><div className="dialog-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancel</button><button className="primary-button" disabled={pending || !form.company.trim() || !profileCount}>{pending ? "Adding..." : `Add ${profileCount || ""} profiles`}</button></div></form></div>;
 }
 
 function SettingsDialog({ profile, email, onClose, onSave }: { profile: Profile; email: string; onClose: () => void; onSave: (input: { full_name: string; headline: string; message_template: string }) => void }) {
-  const [full_name, setName] = useState(profile.full_name ?? ""); const [headline, setHeadline] = useState(profile.headline ?? ""); const [message_template, setTemplate] = useState(profile.message_template ?? defaultTemplate);
+  const [full_name, setName] = useState(profile.full_name ?? ""); const [headline, setHeadline] = useState(profile.headline ?? ""); const [message_template, setTemplate] = useState(profile.message_template ?? defaultMessageTemplate);
   const dialogRef = useRef<HTMLElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const titleId = useId();
   useDialogFocus(dialogRef, onClose, nameRef);
-  return <div className="dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section ref={dialogRef} className="dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}><div className="dialog-title"><div><p className="eyebrow">SETTINGS</p><h2 id={titleId}>Profile settings</h2></div><button className="icon-button" onClick={onClose} aria-label="Close">Close</button></div><p>Signed in as {email}.</p><label>Your name<input ref={nameRef} value={full_name} onChange={(event) => setName(event.target.value)} /></label><label>Your headline<input value={headline} onChange={(event) => setHeadline(event.target.value)} /></label><label>Message template<textarea rows={7} value={message_template} onChange={(event) => setTemplate(event.target.value)} /></label><p>Use {"{name}"}, {"{company}"}, {"{job}"}, {"{headline}"}, and {"{sender}"}.</p><div className="dialog-actions"><button className="secondary-button" onClick={onClose}>Cancel</button><button className="primary-button" onClick={() => onSave({ full_name, headline, message_template })}>Save profile</button></div></section></div>;
+  return <div className="dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section ref={dialogRef} className="dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}><div className="dialog-title"><div><p className="eyebrow">SETTINGS</p><h2 id={titleId}>Profile settings</h2></div><button className="icon-button" onClick={onClose} aria-label="Close">Close</button></div><p>Signed in as {email}.</p><label>Your name<input ref={nameRef} value={full_name} onChange={(event) => setName(event.target.value)} /></label><label>Your headline<input value={headline} onChange={(event) => setHeadline(event.target.value)} /></label><label>Message template<textarea rows={12} value={message_template} onChange={(event) => setTemplate(event.target.value)} /></label><p>Use {"{name}"}, {"{company}"}, {"{job}"}, {"{joblink}"}, {"{headline}"}, and {"{sender}"}.</p><div className="dialog-actions"><button className="secondary-button" onClick={onClose}>Cancel</button><button className="primary-button" onClick={() => onSave({ full_name, headline, message_template })}>Save profile</button></div></section></div>;
 }
 
 function MessageDrawer({ connection, profile, onClose }: { connection: Connection; profile: Profile; onClose: () => void }) {
-  const initial = (profile.message_template || defaultTemplate).replaceAll("{name}", connection.name).replaceAll("{company}", connection.opening.company || "the company").replaceAll("{job}", connection.opening.role || "open").replaceAll("{headline}", profile.headline || "").replaceAll("{sender}", profile.full_name || "");
+  const initial = renderMessageTemplate(profile.message_template || defaultMessageTemplate, connection, profile);
   const [message, setMessage] = useState(initial);
   const [copied, setCopied] = useState(false);
   const drawerRef = useRef<HTMLElement>(null);
   const messageRef = useRef<HTMLTextAreaElement>(null);
   const titleId = useId();
   useDialogFocus(drawerRef, onClose, messageRef);
-  async function copy() { try { await navigator.clipboard.writeText(message); } finally { setCopied(true); window.setTimeout(() => setCopied(false), 1500); } }
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(message);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // The browser keeps the button unchanged when clipboard access fails.
+    }
+  }
   return <div className="drawer-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><aside ref={drawerRef} className="message-drawer" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}><div className="dialog-title"><div><p className="eyebrow">MESSAGE</p><h2 id={titleId}>Referral message</h2></div><button className="icon-button" onClick={onClose} aria-label="Close">Close</button></div><p>For {connection.name} at {connection.opening.company}.</p><textarea ref={messageRef} aria-label="Referral message" rows={14} value={message} onChange={(event) => setMessage(event.target.value)} /><div className="drawer-actions"><button className="secondary-button" onClick={onClose}>Close</button><button className="primary-button" onClick={copy}>{copied ? "Copied" : "Copy message"}</button></div></aside></div>;
 }
