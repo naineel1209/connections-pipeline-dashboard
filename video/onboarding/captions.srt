@@ -1,0 +1,23 @@
+1
+00:00:00,000 --> 00:00:03,192
+Welcome to Connections Pipeline.
+
+2
+00:00:04,492 --> 00:00:09,340
+Keep outreach contacts and job openings in one workspace.
+
+3
+00:00:10,640 --> 00:00:14,624
+Add one opening and its profiles in seconds.
+
+4
+00:00:15,924 --> 00:00:20,076
+Move each profile through clear outreach stages.
+
+5
+00:00:21,376 --> 00:00:25,936
+Use the message editor to prepare referral outreach.
+
+6
+00:00:27,236 --> 00:00:31,892
+Review the action queue and keep every opportunity moving.

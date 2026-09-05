@@ -11,7 +11,7 @@ import { createClient } from "@/lib/supabase/client";
 import { parseOpeningTsv } from "@/lib/opening-tsv";
 import { parseProfileTsv } from "@/lib/profile-tsv";
 import { buildActionQueue, type ActionQueueItem } from "@/lib/action-center";
-import { defaultMessageTemplate, renderMessageTemplate } from "@/lib/message-template";
+import { getMessageTemplates, renderMessageTemplate, serializeMessageTemplates, type MessageSituation } from "@/lib/message-template";
 import { STATUSES, type Connection, type ConnectionInput, type Opening, type OpeningInput, type Profile, type Status } from "@/lib/types";
 import { closeOpening, createOpeningWithProfiles, deleteConnection, reopenOpening, reorderConnections, saveConnection, saveProfile, updateConnectionStatus, updateOpeningPortalStatus } from "./actions";
 
@@ -235,17 +235,19 @@ function BatchTsvDialog({ opening, initialProfiles, pending, onClose, onSave }: 
 }
 
 function SettingsDialog({ profile, email, onClose, onSave }: { profile: Profile; email: string; onClose: () => void; onSave: (input: { full_name: string; headline: string; message_template: string }) => void }) {
-  const [full_name, setName] = useState(profile.full_name ?? ""); const [headline, setHeadline] = useState(profile.headline ?? ""); const [message_template, setTemplate] = useState(profile.message_template ?? defaultMessageTemplate);
+  const [full_name, setName] = useState(profile.full_name ?? ""); const [headline, setHeadline] = useState(profile.headline ?? ""); const [templates, setTemplates] = useState(() => getMessageTemplates(profile.message_template)); const [situation, setSituation] = useState<MessageSituation>("outreach");
   const dialogRef = useRef<HTMLElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const titleId = useId();
   useDialogFocus(dialogRef, onClose, nameRef);
-  return <div className="dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section ref={dialogRef} className="dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}><div className="dialog-title"><div><p className="eyebrow">SETTINGS</p><h2 id={titleId}>Profile settings</h2></div><button className="icon-button" onClick={onClose} aria-label="Close">Close</button></div><p>Signed in as {email}.</p><label>Your name<input ref={nameRef} value={full_name} onChange={(event) => setName(event.target.value)} /></label><label>Your headline<input value={headline} onChange={(event) => setHeadline(event.target.value)} /></label><label>Message template<textarea rows={12} value={message_template} onChange={(event) => setTemplate(event.target.value)} /></label><p>Use {"{company}"}, {"{job}"}, {"{joblink}"}, and {"{headline}"}. Name placeholders stay empty.</p><div className="dialog-actions"><button className="secondary-button" onClick={onClose}>Cancel</button><button className="primary-button" onClick={() => onSave({ full_name, headline, message_template })}>Save profile</button></div></section></div>;
+  return <div className="dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section ref={dialogRef} className="dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}><div className="dialog-title"><div><p className="eyebrow">SETTINGS</p><h2 id={titleId}>Profile settings</h2></div><button className="icon-button" onClick={onClose} aria-label="Close">Close</button></div><p>Signed in as {email}.</p><label>Your name<input ref={nameRef} value={full_name} onChange={(event) => setName(event.target.value)} /></label><label>Your headline<input value={headline} onChange={(event) => setHeadline(event.target.value)} /></label><div className="message-template-heading"><span>Message template</span><div className="message-situation-selector" aria-label="Message situation">{(["outreach", "applied"] as MessageSituation[]).map((item) => <button key={item} type="button" className={situation === item ? "active" : ""} aria-pressed={situation === item} onClick={() => setSituation(item)}>{item === "outreach" ? "Default outreach" : "Applied outreach"}</button>)}</div></div><label className="message-template-input">{situation === "outreach" ? "Default outreach template" : "Applied outreach template"}<textarea rows={12} value={templates[situation]} onChange={(event) => setTemplates((current) => ({ ...current, [situation]: event.target.value }))} /></label><p>Use {"{firstName}"}, {"{company}"}, {"{job}"}, {"{joblink}"}, and {"{headline}"}. {"{name}"} also uses the contact&apos;s first name.</p><div className="dialog-actions"><button className="secondary-button" onClick={onClose}>Cancel</button><button className="primary-button" onClick={() => onSave({ full_name, headline, message_template: serializeMessageTemplates(templates) })}>Save profile</button></div></section></div>;
 }
 
 function MessageDrawer({ connection, profile, onClose }: { connection: Connection; profile: Profile; onClose: () => void }) {
-  const initial = renderMessageTemplate(profile.message_template || defaultMessageTemplate, connection, profile);
-  const [message, setMessage] = useState(initial);
+  const templates = getMessageTemplates(profile.message_template);
+  const initialSituation: MessageSituation = connection.opening.applied_on_portal ? "applied" : "outreach";
+  const [situation, setSituation] = useState<MessageSituation>(initialSituation);
+  const [messages, setMessages] = useState(() => ({ outreach: renderMessageTemplate(templates.outreach, connection, profile), applied: renderMessageTemplate(templates.applied, connection, profile) }));
   const [copied, setCopied] = useState(false);
   const drawerRef = useRef<HTMLElement>(null);
   const messageRef = useRef<HTMLTextAreaElement>(null);
@@ -253,12 +255,12 @@ function MessageDrawer({ connection, profile, onClose }: { connection: Connectio
   useDialogFocus(drawerRef, onClose, messageRef);
   async function copy() {
     try {
-      await navigator.clipboard.writeText(message);
+      await navigator.clipboard.writeText(messages[situation]);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1500);
     } catch {
       // The browser keeps the button unchanged when clipboard access fails.
     }
   }
-  return <div className="drawer-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><aside ref={drawerRef} className="message-drawer" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}><div className="dialog-title"><div><p className="eyebrow">MESSAGE</p><h2 id={titleId}>Referral message</h2></div><button className="icon-button" onClick={onClose} aria-label="Close">Close</button></div><p>For {connection.name} at {connection.opening.company}.</p><textarea ref={messageRef} aria-label="Referral message" rows={14} value={message} onChange={(event) => setMessage(event.target.value)} /><div className="drawer-actions"><button className="secondary-button" onClick={onClose}>Close</button><button className="primary-button" onClick={copy}>{copied ? "Copied" : "Copy message"}</button></div></aside></div>;
+  return <div className="drawer-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><aside ref={drawerRef} className="message-drawer" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}><div className="dialog-title"><div><p className="eyebrow">MESSAGE</p><h2 id={titleId}>Referral message</h2></div><button className="icon-button" onClick={onClose} aria-label="Close">Close</button></div><p>For {connection.name} at {connection.opening.company}.</p><div className="message-situation-selector" aria-label="Message situation">{(["outreach", "applied"] as MessageSituation[]).map((item) => <button key={item} type="button" className={situation === item ? "active" : ""} aria-pressed={situation === item} onClick={() => setSituation(item)}>{item === "outreach" ? "Default outreach" : "Applied outreach"}</button>)}</div><textarea ref={messageRef} aria-label={`${situation === "outreach" ? "Default outreach" : "Applied outreach"} message`} rows={14} value={messages[situation]} onChange={(event) => setMessages((current) => ({ ...current, [situation]: event.target.value }))} /><div className="drawer-actions"><button className="secondary-button" onClick={onClose}>Close</button><button className="primary-button" onClick={copy}>{copied ? "Copied" : "Copy message"}</button></div></aside></div>;
 }

@@ -5,7 +5,7 @@ import { mapLegacyStatus, readConnectionsWorkbook } from "../lib/workbook";
 import { parseProfileTsv } from "../lib/profile-tsv";
 import { parseOpeningTsv } from "../lib/opening-tsv";
 import { buildActionQueue, getAgeDays, getInteractionDate } from "../lib/action-center";
-import { defaultMessageTemplate, renderMessageTemplate } from "../lib/message-template";
+import { defaultAppliedMessageTemplate, defaultMessageTemplate, getMessageTemplates, renderMessageTemplate, serializeMessageTemplates } from "../lib/message-template";
 import type { Connection, Status } from "../lib/types";
 
 function connection(overrides: Partial<Connection> = {}): Connection {
@@ -62,9 +62,23 @@ test("opening text accepts an optional header and ignores blank rows", () => {
   ]);
 });
 
-test("message template omits name placeholders and fills the job link token", () => {
+test("message template uses the contact first name and fills the job link token", () => {
   const result = renderMessageTemplate("{name}|{company}|{job}|{joblink}|{headline}|{sender}", connection(), { full_name: "Nai Neel", headline: "Python engineer", message_template: defaultMessageTemplate });
-  assert.equal(result, "|Acme|Data Engineer|https://acme.example/jobs/1|Python engineer|");
+  assert.equal(result, "Avery|Acme|Data Engineer|https://acme.example/jobs/1|Python engineer|");
+  assert.match(renderMessageTemplate(defaultMessageTemplate, connection(), { full_name: "Nai Neel", headline: "Python engineer", message_template: defaultMessageTemplate }), /^Hi Avery,/);
+  assert.match(renderMessageTemplate(defaultAppliedMessageTemplate, connection(), { full_name: "Nai Neel", headline: "Python engineer", message_template: defaultMessageTemplate }), /^Hi Avery,\n\nI recently applied/);
+});
+
+test("message templates preserve legacy outreach text and add the applied template", () => {
+  const templates = getMessageTemplates("Hi {name},\n\nLegacy outreach text.");
+  assert.equal(templates.outreach, "Hi {name},\n\nLegacy outreach text.");
+  assert.equal(templates.applied, defaultAppliedMessageTemplate);
+});
+
+test("message template situations serialize and read back", () => {
+  const templates = { outreach: "Default message", applied: "Applied message" };
+  assert.deepEqual(getMessageTemplates(serializeMessageTemplates(templates)), templates);
+  assert.deepEqual(getMessageTemplates("{not valid json"), { outreach: defaultMessageTemplate, applied: defaultAppliedMessageTemplate });
 });
 
 test("message template leaves a missing job link empty", () => {

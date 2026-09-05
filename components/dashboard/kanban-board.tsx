@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { defaultMessageTemplate, renderMessageTemplate } from "@/lib/message-template";
+import { getMessageTemplates, renderMessageTemplate } from "@/lib/message-template";
 import { STATUSES, type Connection, type Profile, type Status } from "@/lib/types";
 
 type Props = {
@@ -61,7 +61,8 @@ function PipelineCard({ connection, profile, accent, highlighted, selected, onCo
   const menuId = useId();
   const opening = connection.opening;
   const date = formatDate(connection.date_added);
-  const message = renderMessageTemplate(profile.message_template || defaultMessageTemplate, connection, profile);
+  const templates = getMessageTemplates(profile.message_template);
+  const message = renderMessageTemplate(connection.opening.applied_on_portal ? templates.applied : templates.outreach, connection, profile);
 
   async function copyMessage() {
     try {

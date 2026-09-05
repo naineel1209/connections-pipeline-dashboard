@@ -239,7 +239,7 @@ export async function reorderConnections(items: Array<{ id: string; status: Stat
 export async function saveProfile(input: { full_name: string; headline: string; message_template: string }): Promise<Result> {
   try {
     const { supabase, user } = await requireUser();
-    const { error } = await supabase.from("profiles").upsert({ id: user.id, full_name: cleanText(input.full_name, 200), headline: cleanText(input.headline, 300), message_template: cleanText(input.message_template, 4000) });
+    const { error } = await supabase.from("profiles").upsert({ id: user.id, full_name: cleanText(input.full_name, 200), headline: cleanText(input.headline, 300), message_template: cleanText(input.message_template, 10000) });
     if (error) return { error: error.message };
     revalidatePath("/dashboard");
     return {};
